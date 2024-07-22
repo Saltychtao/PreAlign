@@ -1,0 +1,36 @@
+{
+    "model_args":{
+      "num_hidden_layers": 4,
+      "hidden_size": 256,
+      "intermediate_size": 1024,
+      "num_attention_heads": 8,
+      "max_position_embeddings": 512,
+      "num_key_value_heads": 8,
+      "pos_emb": "rotary",
+      "rotary_pct": 0.25,
+      "output_layer_parallelism": "column",
+      "hidden_dropout": 0,
+      "attention_dropout": 0} ,
+  
+    "training_args":{
+      "optim": "adamw_torch",
+      "gradient_clipping": 1.0,
+      "weight_decay": 0.1,
+      "per_device_train_batch_size": 64,
+      "per_device_eval_batch_size": 64,
+      "learning_rate": 3e-4,
+      "num_train_epochs": 3,
+      "max_steps": 2000,
+      "logging_steps": 5,
+      "gradient_accumulation_steps": 2,
+      "lr_scheduler_type": "cosine",
+      "warmup_ratio": 0.05,
+      "save_strategy": "steps",
+      "save_steps": 1000,
+      "evaluation_strategy": "steps",
+      "eval_steps": 100,
+      "additional_save_steps": "",
+      "gradient_checkpointing": true,
+      "model_max_length": 512
+    }
+  }

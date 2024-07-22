@@ -1,0 +1,33 @@
+{
+  "model_args":{
+    "num_hidden_layers": 12,
+    "hidden_size": 768,
+    "intermediate_size": 3072,
+    "num_attention_heads": 12,
+    "seq_length": 512,
+    "max_position_embeddings": 512,
+    "pos_emb": "rotary",
+    "rotary_pct": 0.25,
+    "output_layer_parallelism": "column",
+    "hidden_dropout": 0,
+    "attention_dropout": 0} ,
+
+  "training_args":{
+    "optim": "adamw_torch",
+    "gradient_clipping": 1.0,
+    "weight_decay": 0.1,
+    "per_device_train_batch_size": 32,
+    "per_device_eval_batch_size": 32,
+    "learning_rate": 6e-4,
+    "num_train_epochs": 3,
+    "logging_steps": 10,
+    "gradient_accumulation_steps": 4,
+    "lr_scheduler_type": "cosine",
+    "warmup_ratio": 0.01,
+    "save_strategy": "steps",
+    "save_steps": 0.05,
+    "evaluation_strategy": "steps",
+    "eval_steps": 0.05,
+    "additional_save_steps": "512"
+  }
+}
