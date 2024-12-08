@@ -126,7 +126,7 @@ class ContrastiveMetric(torch.nn.Module):
         logits = logits - logits_max.detach()
         self_mask = torch.ones_like(logits)
         self_mask[:, range(B,2*B),range(B)] = 0
-        self_mask[,range(B),range(B,2*B)] = 0
+        self_mask[:,range(B),range(B,2*B)] = 0
         logits = logits*self_mask
 
         logprob = logits - logits.logsumexp(dim=-1,keepdim=True)
