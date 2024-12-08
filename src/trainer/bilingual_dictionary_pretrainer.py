@@ -15,14 +15,11 @@ from src.trainer.trainer import (
 from src.trainer.lm_trainer import Trainer
 from src.trainer.trainer_utils import parse_layers, build_metric, ContrastiveMetric, AllGatherGrad
 
-class BilingualDictionaryPretrainer(Trainer):
+class BilingualDictionaryPretrainerMulti(Trainer):
     def __init__(self,args,**kwargs):
         super().__init__(args=args,**kwargs)
         self.metric= ContrastiveMetric(tau=0.1)
-        self.alpha = args.repre_alignment_strengthsda
-
-    def _save(self, output_dir):
-        super()._save(output_dir, state_dict)
+        self.alpha = args.repre_alignment_strengths
 
     def compute_pairwise_alignment(self, x_states, y_states):
         x,y = x_states.float(), y_states.float()
@@ -49,8 +46,8 @@ class BilingualDictionaryPretrainer(Trainer):
         y_hidden_states = torch.stack(y_hidden_states,dim=0)
 
         x_input_ids,y_input_ids = inputs["input_ids"].chunk(2,dim=0)
-        x_ouptut_embed = model.output_embed(x_input_ids).masked_fill(~x_mask.unsqueeze(-1),0).sum(dim=1)
-        y_ouptut_embed = model.output_embed(y_input_ids).masked_fill(~y_mask.unsqueeze(-1),0).sum(dim=1)
+        x_ouptut_embed = F.embedding(x_input_ids, model.embed_out.weight).masked_fill(~x_mask.unsqueeze(-1),0).sum(dim=1)
+        y_ouptut_embed = F.embedding(y_input_ids, model.embed_out.weight).masked_fill(~y_mask.unsqueeze(-1),0).sum(dim=1)
 
         x_states = torch.cat((x_hidden_states, x_ouptut_embed.unsqueeze(0)),dim=0)
         y_states = torch.cat((y_hidden_states, y_ouptut_embed.unsqueeze(0)),dim=0)

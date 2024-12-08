@@ -26,7 +26,7 @@ while [ $# -gt 0 ]; do
 done
 
 
-deepspeed --master_port $master_port --include="localhost:$devices" src/pretrain_with_parallel.py \
+deepspeed --master_port $master_port --include="localhost:$devices" src/pretrain.py \
     --config_file $config_file \
     --lm_train_file $lm_train_file \
     --fp16 --do_train  --dataloader_num_workers 0\

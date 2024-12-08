@@ -33,6 +33,7 @@ from transformers import (
 )
 
 from src.trainer.trainer import Trainer
+from src.trainer.lm_trainer import LMTrainer
 
 from dataclasses import dataclass, field
 from typing import Optional
@@ -88,27 +89,26 @@ class ModelArguments:
 class DataArguments:
     train_file: str = field(default=None, metadata={"help": "Path to the training data."})
     validation_file: str = field(default=None, metadata={"help": "Path to the training data."})
+    codeswitch_ratio: Optional[float] = field(default=0.)
 
-    codeswitch_table_file: str = field(default=None)
+    dict_file: str = field(default=None)
 
 
 @dataclass
 class TrainingArguments(transformers.TrainingArguments):
     additional_save_steps: Optional[str] = field(default="1,2,4,8,16,32,64")
-    codeswitch_ratio: Optional[float] = field(default=0.)
     def update(self, new):
         for key, value in new.items():
             if hasattr(self, key):
                 setattr(self, key, value)
 
 
-def get_model(model_args,model_config):
+def get_model(model_args):
     if model_args.model_name_or_path is not None:
         model = AutoModelForCausalLM.from_pretrained(model_args.model_name_or_path,trust_remote_code=True)
         print("Loading Pretrained Model from {}".format(model_args.model_name_or_path))
     else:
         config = AutoConfig.from_pretrained(model_args.hf_config,trust_remote_code=True)
-        config.update(model_config)
         model = AutoModelForCausalLM.from_config(config,trust_remote_code=True)
     return model
 
@@ -116,26 +116,21 @@ def main():
     parser = transformers.HfArgumentParser((ModelArguments, DataArguments, TrainingArguments))
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()
 
-    with open(model_args.config_file) as f:
-        config = json.load(f)
     training_args._frozen = False
-    training_args.update(config["training_args"])
     if training_args.additional_save_steps != "":
         training_args.additional_save_steps = list(map(int,training_args.additional_save_steps.split(",")))
     else:
         training_args.additional_save_steps = []
-
-    tokenizer = AutoTokenizer.from_pretrained(model_args.tokenizer_path,trust_remote_code=True,padding_side="right")
-
-
-    config["model_args"]["vocab_size"] = len(tokenizer)
     model = get_model(model_args,config["model_args"])
 
+    tokenizer = AutoTokenizer.from_pretrained(model_args.tokenizer_path,trust_remote_code=True,padding_side="right")
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token_id = tokenizer.eos_token_id
 
-    data_module = make_data_module(data_args,model.config,tokenizer,type="lm_from_disk")
+    data_module = make_data_module(data_args,model.config,tokenizer,type="lm")
 
     # Preprocessing the datasets.
-    trainer = Trainer(model=model,tokenizer=tokenizer,args=training_args, **data_module)
+    trainer = LMTrainer(model=model,tokenizer=tokenizer,args=training_args, **data_module)
     trainer.train()
     trainer.save_model(training_args.output_dir)
 

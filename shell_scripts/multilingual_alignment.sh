@@ -3,8 +3,6 @@ set -e
 lm_train_file=${lm_train_file:-""}
 output_dir=${output_dir:-""}
 
-hf_config=${hf_config:-""}
-config_file=${config_file:-""}
 tokenizer_path=${tokenizer_path:-""}
 
 master_port=${master_port:-"2222"}
@@ -12,7 +10,7 @@ master_port=${master_port:-"2222"}
 devices=${devices:-""}
 ds_config=${ds_config:-"configs/deepspeed/stage1.json"}
 
-dict_file=${dict_file:-""}
+dict_train_file=${dict_train_file:-""}
 
 
 while [ $# -gt 0 ]; do
@@ -25,13 +23,15 @@ while [ $# -gt 0 ]; do
 done
 
 
-deepspeed --master_port $master_port --include="localhost:$devices" src/multilingual_alignment.py \
-    --config_file $config_file \
-    --lm_train_file $lm_train_file \
-    --fp16 --do_train  --dataloader_num_workers 0\
+deepspeed --master_port $master_port --include="localhost:$devices" src/bilingual_dictionary_pretrain.py \
+    --model_name_or_path $model_name_or_path \
+    --remove_unused_columns False\
+    --bf16 --do_train  --dataloader_num_workers 0\
     --hf_config $hf_config \
     --output_dir $output_dir \
     --seed 42 --report_to none\
     --tokenizer_path $tokenizer_path \
     --deepspeed $ds_config \
-    --dict_file ${dict_file}
+    --dict_train_file ${dict_train_file} \
+    --output_dir ${output_dir} \
+    --contrastive_multi 1

@@ -4,8 +4,7 @@ import torch
 from itertools import chain
 from typing import Any, Dict, NewType, Sequence
 import transformers
-from transformers import LlamaTokenizerFast, DataCollatorForLanguageModeling
-import datasets
+
 
 from src.trainer.trainer_utils import collate_tokens
 
@@ -20,7 +19,7 @@ class DataCollatorForBDPDataset(object):
         dict_entry = [torch.tensor(instance["input_ids"]).long() for instance in instances]
         dict_indices = [torch.tensor(instance["indices"]).long() for instance in instances]
         dict_data = collate_tokens(dict_entry, self.tokenizer.pad_token_id,left_pad=False)
-        dict_indices = collate_tokens(dict_indices,-100,left_pad=True)
+        dict_indices = collate_tokens(dict_indices,-100,left_pad=False)
         B,k = dict_indices.size()
         dict_indices = dict_indices.view(B*k)
         dict_data = dict_data.view(B*k,-1)
@@ -28,7 +27,8 @@ class DataCollatorForBDPDataset(object):
         return_dict = {
             "input_ids": dict_data,
             "attention_mask": dict_data.ne(self.tokenizer.pad_token_id),
-            "labels": dict_data
+            "labels": dict_data.masked_fill(dict_data.eq(self.tokenizer.pad_token_id)),
+            "indices": dict_indices
         }
         return return_dict
 
@@ -47,11 +47,11 @@ def pad_and_concatenate(xs,target_length,sep_id, pad_token_idx):
     if current_sublist:
         current_sublist = [pad_token_idx] * (target_length - len(current_sublist)) + current_sublist
         padded_sublists.append(current_sublist)
-    concatenated_list = [item for sublit in padded_sublists for item in sublist]
+    concatenated_list = [item for sublist in padded_sublists for item in sublist]
     return concatenated_list, len(padded_sublists)
 
 def tokenize_parallel_function(tokenizer,examples):
-    tokenized = tokenizer(exmaples["words"])["input_ids"]
+    tokenized = tokenizer(examples["words"])["input_ids"]
     indices = examples["index"]
     sequences = []
     numbers = []
@@ -63,6 +63,8 @@ def tokenize_parallel_function(tokenizer,examples):
         sep_id = 400
     elif "qwen" in tokenizer.name_or_path.lower():
         sep_id = 400
+    elif "pythia" in tokenizer.name_or_path.lower():
+        sep_id = 370
     for x in tokenized:
         concatenated_list, n= pad_and_concatenate(x,30,sep_id, tokenizer.pad_token_id)
         sequences.append(concatenated_list)
@@ -88,11 +90,11 @@ def group_texts(block_size,examples):
     result["labels"] = result["input_ids"].copy()
     return result
 
-def make_bilingual_dict_pretrain_module(data_args, model_args,tokenizer):
+def make_bilingual_dict_pretrain_module_multi(data_args, model_args,tokenizer):
     tokenize_parallel_fn = partial(tokenize_parallel_function, tokenizer)
 
-    raw_datasets = load_dataset("json", data_files={"train":data_args.dict_train_file})
-    column_names = raw_datasets["train"].column_names
+    raw_datasets = load_dataset("json", data_files={"train":data_args.dict_train_file})["train"]
+    column_names = raw_datasets.column_names
     dict_dataset = raw_datasets.map(
         tokenize_parallel_fn,
         batched=True,
@@ -104,28 +106,4 @@ def make_bilingual_dict_pretrain_module(data_args, model_args,tokenizer):
 
     parallel_data_collator = DataCollatorForBDPDataset(tokenizer=tokenizer)
 
-    if data_args.lm_train_file != "none":
-        tokenize_fn = partial(tokenize_function, tokenizer)
-        group_fn = partial(group_texts, 1024)
-        lm_dataset = load_from_disk(data_args.lm_train_file)
-        lm_dataset = lm_dataset.map(
-            tokenize_fn,
-            batched=True,
-            num_proc=32,
-            remove_columns=lm_dataset.column_names,
-            load_from_cache_file=True,
-            desc="Running tokenizer on dataset"
-        )
-
-        lm_dataset = lm_dataset.map(
-            group_fn,
-            batched=True,
-            num_proc=32,
-            load_from_cache_file=True,
-            desc="Grouping texts in chunks of 1024"
-        )
-
-        lm_data_collator = DataCollatorForLanguageModeling(tokenizer,mlm=False)
-        return dict(train_dataset={"dict":dict_dataset, "lm": lm_dataset}, eval_dataset=None, data_collator={"dict":parallel_data_collator, "lm": lm_data_collator})
-    else:
-        return dict(train_dataset={"dict":dict_dataset,"lm":None},eval_dataset=None, data_collator={"dict":parallel_data_collator, "lm": None})
+    return dict(train_dataset=dict_dataset,eval_dataset=None, data_collator=parallel_data_collator)

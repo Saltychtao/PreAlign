@@ -32,7 +32,8 @@ from transformers import (
     CONFIG_MAPPING
 )
 
-from src.trainer.trainer import Trainer
+from src.trainer.bilingual_dictionary_pretrainer import BilingualDictionaryPretrainer
+from src.trainer.bilingual_dictionary_pretrainer_multi import BilingualDictionaryPretrainerMulti
 
 from dataclasses import dataclass, field
 from typing import Optional
@@ -93,7 +94,7 @@ class DataArguments:
 
 @dataclass
 class TrainingArguments(transformers.TrainingArguments):
-    additional_save_steps: Optional[str] = field(default="1,2,4,8,16,32,64")
+    additional_save_steps: Optional[str] = field(default="10000")
 
     repre_alignment_strength: Optional[float] = field(default=0)
     repre_alignment_metric: Optional[str] = field(default=None)
@@ -104,13 +105,12 @@ class TrainingArguments(transformers.TrainingArguments):
                 setattr(self, key, value)
 
 
-def get_model(model_args,model_config):
+def get_model(model_args):
     if model_args.model_name_or_path is not None:
         model = AutoModelForCausalLM.from_pretrained(model_args.model_name_or_path,trust_remote_code=True)
         print("Loading Pretrained Model from {}".format(model_args.model_name_or_path))
     else:
-        config = AutoConfig.from_pretrained(model_args.hf_config,trust_remote_code=True)
-        config.update(model_config)
+        config = AutoConfig.from_pretrained(model_args.model_name_or_path,trust_remote_code=True)
         model = AutoModelForCausalLM.from_config(config,trust_remote_code=True)
     return model
 
@@ -126,12 +126,12 @@ def main():
         training_args.additional_save_steps = list(map(int,training_args.additional_save_steps.split(",")))
     else:
         training_args.additional_save_steps = []
+    model = get_model(model_args,config["model_args"])
 
     tokenizer = AutoTokenizer.from_pretrained(model_args.tokenizer_path,trust_remote_code=True,padding_side="right")
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token_id = tokenizer.eos_token_id
 
-
-    config["model_args"]["vocab_size"] = len(tokenizer)
-    model = get_model(model_args,config["model_args"])
 
     training_args.max_steps = 5000
     training_args.logging_steps = 10
@@ -141,10 +141,13 @@ def main():
     training_args.per_device_train_batch_size = 256
     training_args.per_device_eval_batch_size = 256
     with training_args.main_process_first(desc="dataset map tokenization"):
-        data_module = make_data_module(data_args,model.config,tokenizer,type="bilingual_dict_pretrain")
+        if training_args.contrastive_multi == "1":
+            data_module = make_data_module(data_args,model.config,tokenizer,type="bilingual_dict_pretrain_multi")
+            trainer = BilingualDictionaryPretrainerMulti(model=model,tokenizer=tokenizer,args=training_args, **data_module)
+        else:
+            data_module = make_data_module(data_args,model.config,tokenizer,type="bilingual_dict_pretrain")
+            trainer = BilingualDictionaryPretrainer(model=model,tokenizer=tokenizer,args=training_args, **data_module)
 
-    # Preprocessing the datasets.
-    trainer = BilingualDictionaryPretrainer(model=model,tokenizer=tokenizer,args=training_args, **data_module)
     trainer.train()
     trainer.save_model(training_args.output_dir)
 

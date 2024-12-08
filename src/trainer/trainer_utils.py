@@ -13,7 +13,7 @@ else:
 
 
 class AllGatherGrad(torch.autograd.Function):
-    @statisticmethod
+    @staticmethod
     def forward(
         ctx,
         tensor: torch.Tensor,
@@ -28,7 +28,7 @@ class AllGatherGrad(torch.autograd.Function):
 
         return gathered_tensor
 
-    @statisticmethod
+    @staticmethod
     def backward(ctx: Any, *grad_output: torch.Tensor) -> Tuple[torch.Tensor, None]:
         grad_output = torch.cat(grad_output)
         torch.distributed.all_reduce(grad_output, op=torch.distributed.ReduceOp.SUM, async_op=False, group=ctx.group)
@@ -36,7 +36,7 @@ class AllGatherGrad(torch.autograd.Function):
         return grad_output[torch.distributed.get_rank()], None
 
 class AllGatherGradVarLen(torch.autograd.Function):
-    @statisticmethod
+    @staticmethod
     def forward(
         ctx,
         tensor,
@@ -69,7 +69,7 @@ class AllGatherGradVarLen(torch.autograd.Function):
 
         return gathered_tensor
 
-    @statisticmethod
+    @staticmethod
     def backward(ctx, *grad_output):
         torch.distributed.barrier()
 
@@ -120,9 +120,9 @@ class ContrastiveMetric(torch.nn.Module):
         L,B,H = x.size()
         x,y = F.normalize(x,dim=-1), F.normalize(y,dim=-1)
         xy,yx =torch.cat((x,y),dim=1), torch.cat((y,x),dim=1)
-        scores = torch.einsum("lih,ljh->lij")
+        scores = torch.einsum("lih,ljh->lij",xy,yx)
         logits = scores / self.tau
-        logitx_max, _ = torch.max(logits, dim=1,keepdim=True)
+        logits_max, _ = torch.max(logits, dim=1,keepdim=True)
         logits = logits - logits_max.detach()
         self_mask = torch.ones_like(logits)
         self_mask[:, range(B,2*B),range(B)] = 0
@@ -131,6 +131,32 @@ class ContrastiveMetric(torch.nn.Module):
 
         logprob = logits - logits.logsumexp(dim=-1,keepdim=True)
         loss = -logprob[:,range(B),range(B)]
+        return loss.mean()
+
+class ContrastiveMultiMetric(torch.nn.Module):
+    def __init__(self,tau,p=2):
+        super().__init__()
+        self.tau = tau
+        self.p = p
+
+    def forward(self,states,indices):
+        states = states.float()
+        L,Bk,H = states.size()
+        states = F.normalize(states,dim=-1)
+        scores = torch.einsum("lih,ljh->lij",states,states)
+        logits = scores/self.tau
+        logits_max = torch.max(logits,dim=1,keepdim=True)
+        logits = logits - logits_max.detach()
+
+        self_mask = torch.ones((Bk,Bk),device=states.device,dtype=states.dtype)
+        self_mask[range(Bk),range(Bk)] = 0
+        pos_mask = indices.unsqueeze(-1) == indices.unsqueeze(0)
+
+        self_mask = self_mask.unsqueeze(0).expand(L,Bk,Bk)
+        pos_mask = pos_mask.unsqueeze(0).expand(L,Bk,Bk)
+        logits = logits * self_mask
+        logprob = logits - logits.logsumexp(dim=-1,keepdim=True)
+        loss = -((pos_mask * logprob).sum(dim=-1).sum(dim=-1)) / pos_mask.sum(dim=-1).sum(dim=-1)
         return loss.mean()
 
 def solve_relaxed_wmd(scores,dim):
