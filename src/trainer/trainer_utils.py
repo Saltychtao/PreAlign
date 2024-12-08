@@ -1,6 +1,90 @@
 import torch.nn.functional as F
 import torch
 
+from typing import Any, Callable, Dict, List, Optiaonl, Tuple, Union
+
+if torch.distributed.is_available():
+    from torch.distributed import group, ReduceOp
+else:
+    class ReduceOp:
+        SUM=None
+    class group:
+        WORLD=None
+
+
+class AllGatherGrad(torch.autograd.Function):
+    @statisticmethod
+    def forward(
+        ctx,
+        tensor: torch.Tensor,
+        group: Optional["torch.distibuted.ProcessGroup"] = group.WORLD
+    ) -> torch.Tensor:
+        ctx.group = group
+
+        gathered_tensor = [torch.zeros_like(tensor) for _ in range(torch.distributed.get_world_size())]
+
+        torch.distributed.all_gather(gathered_tensor, tensor,group=group)
+        gathered_tensor = torch.stack(gathered_tensor, dim=0)
+
+        return gathered_tensor
+
+    @statisticmethod
+    def backward(ctx: Any, *grad_output: torch.Tensor) -> Tuple[torch.Tensor, None]:
+        grad_output = torch.cat(grad_output)
+        torch.distributed.all_reduce(grad_output, op=torch.distributed.ReduceOp.SUM, async_op=False, group=ctx.group)
+
+        return grad_output[torch.distributed.get_rank()], None
+
+class AllGatherGradVarLen(torch.autograd.Function):
+    @statisticmethod
+    def forward(
+        ctx,
+        tensor,
+        dim,
+        group = group.WORLD
+    ):
+        torch.distibuted.barrier()
+        ctx.group = group
+        ctx.dim = dim
+
+        size = torch.tensor([tensor.shape[dim]], dtype=torch.long).to(tensor.device)
+        sizes = [torch.zeros_like(size) for _ in range(torch.distributed.get_world_size())]
+        torch.distibuted.all_gather(sizes,size,group=group)
+        sizes = [int(s.item()) for s in sizes]
+
+        max_size = max(sizes)
+        if tensor.shape[dim] < max_size:
+            pad_size = max_size - tensor.shape[dim]
+            pad_tensor_shape = list(tensor.shape)
+            pad_tensor_shape[dim] = pad_size
+            pad_tensor = torch.zeros(*pad_tensor_shape,dtype=tensor.dtype,device=tensor.device)
+            tensor = torch.cat([tensor,pad_tensor], dim = dim)
+
+        gathered_tensor = [torch.zeros_like(tensor) for _ in range(torch.distributed.get_world_size())]
+        torch.distributed.all_gather(gathered_tensor, tensor, group=group)
+
+        gathered_tensor = torch.cat([t.narrow(dim,0,s) for t,s in zip(gathered_tensor, sizes)], dim=dim)
+
+        ctx.sizes = sizes
+
+        return gathered_tensor
+
+    @statisticmethod
+    def backward(ctx, *grad_output):
+        torch.distributed.barrier()
+
+        grad_output = grad_output[0]
+
+        grad_output_list = torch.split(grad_output, ctx.sizes, dim=ctx.dim)
+
+        grad_output = grad_output_list[torch.distributed.get_rank()].contiguous()
+
+        torch.distributed.all_reduce(grad_output, op=torch.distributed.ReduceOp.SUM, async_op=False, group=ctx.group)
+
+        return grad_output, None, None
+
+
+
 def parse_layers(num_layers,layer_str):
     if layer_str == "top":
         return [-1]
@@ -31,14 +115,22 @@ class ContrastiveMetric(torch.nn.Module):
         self.tau = tau
         self.p = p
 
-    def forward(self,x,y):
-        L, B, H = x.size()
-        scores = torch.cdist(x,y,p=self.p)
+    def forward(self, src_sentence_states, target_sentence_states, **kwargs):
+        x,y = src_sentence_states.float(), target_sentence_states.float()
+        L,B,H = x.size()
+        x,y = F.normalize(x,dim=-1), F.normalize(y,dim=-1)
+        xy,yx =torch.cat((x,y),dim=1), torch.cat((y,x),dim=1)
+        scores = torch.einsum("lih,ljh->lij")
         logits = scores / self.tau
-        logits_max, _ = torch.max(logits,dim=1,keepdim=True)
+        logitx_max, _ = torch.max(logits, dim=1,keepdim=True)
         logits = logits - logits_max.detach()
+        self_mask = torch.ones_like(logits)
+        self_mask[:, range(B,2*B),range(B)] = 0
+        self_mask[,range(B),range(B,2*B)] = 0
+        logits = logits*self_mask
+
         logprob = logits - logits.logsumexp(dim=-1,keepdim=True)
-        loss = - logprob[:,range(B),range(B)]
+        loss = -logprob[:,range(B),range(B)]
         return loss.mean()
 
 def solve_relaxed_wmd(scores,dim):

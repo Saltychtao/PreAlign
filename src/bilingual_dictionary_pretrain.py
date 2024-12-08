@@ -81,21 +81,23 @@ class ModelArguments:
     config_file: Optional[str] = field(default="")
     hf_config: Optional[str] = field(default=None)
 
-    pretrained_model_path: Optional[str] = field(default="none")
+    pretrained_model_path: Optinal[str] = field(default=None)
 
 
 @dataclass
 class DataArguments:
     train_file: str = field(default=None, metadata={"help": "Path to the training data."})
     validation_file: str = field(default=None, metadata={"help": "Path to the training data."})
-
-    codeswitch_table_file: str = field(default=None)
-
+    dict_train_file: str = field(default=None)
+    lm_train_file: str = field(default=None)
 
 @dataclass
 class TrainingArguments(transformers.TrainingArguments):
     additional_save_steps: Optional[str] = field(default="1,2,4,8,16,32,64")
-    codeswitch_ratio: Optional[float] = field(default=0.)
+
+    repre_alignment_strength: Optional[float] = field(default=0)
+    repre_alignment_metric: Optional[str] = field(default=None)
+    contrastive_multi: Optional[str]  = field(default="0")
     def update(self, new):
         for key, value in new.items():
             if hasattr(self, key):
@@ -131,11 +133,18 @@ def main():
     config["model_args"]["vocab_size"] = len(tokenizer)
     model = get_model(model_args,config["model_args"])
 
+    training_args.max_steps = 5000
+    training_args.logging_steps = 10
+    training_args.save_steps = 500
+    training_args.eval_step =50
 
-    data_module = make_data_module(data_args,model.config,tokenizer,type="lm_from_disk")
+    training_args.per_device_train_batch_size = 256
+    training_args.per_device_eval_batch_size = 256
+    with training_args.main_process_first(desc="dataset map tokenization"):
+        data_module = make_data_module(data_args,model.config,tokenizer,type="bilingual_dict_pretrain")
 
     # Preprocessing the datasets.
-    trainer = Trainer(model=model,tokenizer=tokenizer,args=training_args, **data_module)
+    trainer = BilingualDictionaryPretrainer(model=model,tokenizer=tokenizer,args=training_args, **data_module)
     trainer.train()
     trainer.save_model(training_args.output_dir)
 
