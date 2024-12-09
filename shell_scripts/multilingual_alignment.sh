@@ -27,7 +27,6 @@ deepspeed --master_port $master_port --include="localhost:$devices" src/bilingua
     --model_name_or_path $model_name_or_path \
     --remove_unused_columns False\
     --bf16 --do_train  --dataloader_num_workers 0\
-    --hf_config $hf_config \
     --output_dir $output_dir \
     --seed 42 --report_to none\
     --tokenizer_path $tokenizer_path \

@@ -30,7 +30,7 @@ class DataCollatorForLMDataset(object):
     def is_start(self,i):
         if i >= self.tokenizer:
             i -= len(self.tokenizer)
-        return self.tokenizer.convert_ids_to_tokens(i).startswith("_") or self.tokenizer.convert_ids_to_tokens(i).startswith("") or i == 0
+        return self.tokenizer.convert_ids_to_tokens(i).startswith("▁") or self.tokenizer.convert_ids_to_tokens(i).startswith("Ġ") or i == 0
 
     def codeswitch(self, input_ids):
         codeswitched_ids = []
@@ -38,7 +38,7 @@ class DataCollatorForLMDataset(object):
         original_align_mask = []
         cur = [input_ids[0]]
         for i in input_ids[1:] + [0]:
-            if self.tokenizer.convert_ids_to_tokens(i).startswith("_") or self.tokenizer.convert_ids_to_tokens(i).startswith("TODO") or i == 0:
+            if self.tokenizer.convert_ids_to_tokens(i).startswith("▁") or self.tokenizer.convert_ids_to_tokens(i).startswith("Ġ") or i == 0:
                 original_word_seq = cur
                 if random.random() < self.codeswitch_ratio and tuple(original_word_seq) in self.codeswitch_table:
                     codeswitch_word_seq = random.choice(self.codeswitch_table[tuple(original_word_seq)])

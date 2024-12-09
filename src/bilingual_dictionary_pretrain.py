@@ -106,12 +106,8 @@ class TrainingArguments(transformers.TrainingArguments):
 
 
 def get_model(model_args):
-    if model_args.model_name_or_path is not None:
-        model = AutoModelForCausalLM.from_pretrained(model_args.model_name_or_path,trust_remote_code=True)
-        print("Loading Pretrained Model from {}".format(model_args.model_name_or_path))
-    else:
-        config = AutoConfig.from_pretrained(model_args.model_name_or_path,trust_remote_code=True)
-        model = AutoModelForCausalLM.from_config(config,trust_remote_code=True)
+    config = AutoConfig.from_pretrained(model_args.model_name_or_path,trust_remote_code=True)
+    model = AutoModelForCausalLM.from_config(config,trust_remote_code=True)
     return model
 
 def main():
