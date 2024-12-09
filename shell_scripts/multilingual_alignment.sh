@@ -33,4 +33,8 @@ deepspeed --master_port $master_port --include="localhost:$devices" src/bilingua
     --deepspeed $ds_config \
     --dict_train_file ${dict_train_file} \
     --output_dir ${output_dir} \
-    --contrastive_multi 1
+    --contrastive_multi 1 \
+    --warmup_ratio 0.05 \
+    --gradient_accumulation_steps 4 \
+    --learing_rate 5e-4 \
+    --weight_decay 0.1

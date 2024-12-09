@@ -148,16 +148,17 @@ class ContrastiveMultiMetric(torch.nn.Module):
         logits_max = torch.max(logits,dim=1,keepdim=True)
         logits = logits - logits_max.detach()
 
-        self_mask = torch.ones((Bk,Bk),device=states.device,dtype=states.dtype)
+        mask = indices.ne(-100).unsqueeze(-1) & indices.ne(-100).unsqueeze(0)
+        self_mask = torch.ones((Bk,Bk),device=states.device,dtype=states.dtype) * mask
         self_mask[range(Bk),range(Bk)] = 0
         pos_mask = indices.unsqueeze(-1) == indices.unsqueeze(0)
 
         self_mask = self_mask.unsqueeze(0).expand(L,Bk,Bk)
-        pos_mask = pos_mask.unsqueeze(0).expand(L,Bk,Bk)
+        pos_mask = pos_mask.unsqueeze(0).expand(L,Bk,Bk) * self_mask
         logits = logits * self_mask
         logprob = logits - logits.logsumexp(dim=-1,keepdim=True)
         loss = -((pos_mask * logprob).sum(dim=-1).sum(dim=-1)) / pos_mask.sum(dim=-1).sum(dim=-1)
-        return loss.mean()
+        return loss.mean(), (scores * pos_mask).sum(dim=-1).sum(dim=-1) / pos_mask[0].sum(), scores.sum(dim=-1).sum(dim=-1) / self_mask[0].sum()
 
 def solve_relaxed_wmd(scores,dim):
     indices = scores.argmin(dim=dim)

@@ -39,19 +39,19 @@ def pad_and_concatenate(xs,target_length,sep_id, pad_token_idx):
 
     for x in xs:
         if x == sep_id:
-            current_sublist = [pad_token_idx] * (target_length-len(current_sublist)) + current_sublist
+            current_sublist = current_sublist + [pad_token_idx] * (target_length-len(current_sublist))
             padded_sublists.append(current_sublist)
             current_sublist = []
         else:
             current_sublist.append(x)
     if current_sublist:
-        current_sublist = [pad_token_idx] * (target_length - len(current_sublist)) + current_sublist
+        current_sublist = current_sublist + [pad_token_idx] * (target_length - len(current_sublist))
         padded_sublists.append(current_sublist)
     concatenated_list = [item for sublist in padded_sublists for item in sublist]
     return concatenated_list, len(padded_sublists)
 
 def tokenize_parallel_function(tokenizer,examples):
-    tokenized = tokenizer(examples["words"])["input_ids"]
+    tokenized = tokenizer([" " +w for w in examples["words"]])["input_ids"]
     indices = examples["index"]
     sequences = []
     numbers = []

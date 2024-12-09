@@ -19,7 +19,7 @@ class BilingualDictionaryPretrainer(Trainer):
     def __init__(self,args,**kwargs):
         super().__init__(args=args,**kwargs)
         self.metric= ContrastiveMultiMetric(tau=0.1)
-        self.alpha = args.repre_alignment_strengths
+        self.alpha = 0.1
 
     def compute_pairwise_alignment(self, x_states, y_states):
         x,y = x_states.float(), y_states.float()
@@ -36,7 +36,7 @@ class BilingualDictionaryPretrainer(Trainer):
         states = []
 
         for layer_hidden in output.hidden_states:
-            state = layer_hidde.masked_fill(inputs["attention_mask"].unsqueeze(-1),0).sum(dim=1)
+            state = layer_hidde.masked_fill(~inputs["attention_mask"].unsqueeze(-1),0).sum(dim=1)
             states.append(state)
 
 
@@ -56,7 +56,7 @@ class BilingualDictionaryPretrainer(Trainer):
 
         alignment_loss = self.metric(states, indices)
 
-        loss = self.alpha * alignment_loss + output.loss
+        loss, pos_scores, scores = self.alpha * alignment_loss + output.loss + max(0, scores.mean())
 
         if not model.training:
             return ({"loss": loss}, output) if return_outputs else {"loss": loss}
